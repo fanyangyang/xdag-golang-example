@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+/**
+a wallet block, if you want get it all transaction, ask fro /api/block/{wallet block address}
+and then iterator all block as address, that all are wallet block's transaction
+the block as address has two direction, which one is input, specify that is a transaction the wallet transfer in coins, ,
+relatively the one whose direction is output specify that a transaction the wallet transfer out coins.
+
+ */
+
 const API_URL = "https://explorer.xdag.io"
 
 const API_BLOCK = "/api/block/"
@@ -33,18 +41,21 @@ type JsonBlock struct {
 }
 
 type JsonBlockInternal struct {
-	Address        string `json:"address"`
-	CreateTime     string `json:"time"`
-	Direction      string `json:"direction"`
-	Amount         string `json:"amount"`
-	Remark         string `json:"remark"`
+	Address    string `json:"address"`
+	CreateTime string `json:"time"`
+	Direction  string `json:"direction"`
+	Amount     string `json:"amount"`
+	Remark     string `json:"remark"`
 }
 
 func main() {
-	address := ""   //TODO you wallet address paste here
+	userPersonalAddress := ""
+	userExchangeAddress := ""
 	var lastCheckTime int64 = 0
+	for {
+		fmt.Println(CheckUserBalance(userExchangeAddress, userPersonalAddress, lastCheckTime))
 
-	fmt.Println(CheckUserBalance(address, lastCheckTime))
+	}
 
 }
 
@@ -69,19 +80,17 @@ func GetStatus() (ok bool) {
 	return ok
 }
 
-func GetTransaction(adderess string) (transactions []JsonBlockInternal) {
-	jsonBlock := SendRequest(API_URL + API_BLOCK + adderess)
-	return jsonBlock.BlockAsAddress
-}
-
-func GetBlockInfo(blockAddress string) (blockInfo []JsonBlockInternal) {
-	jsonBlock := SendRequest(API_URL + API_BLOCK + blockAddress)
-	return jsonBlock.BlockAsTransaction
+//# Check user charge amount
+func CheckUserBalance(exchangeAddress, personalAddress string, lastCheckTime int64) (balance float64) {
+	transactions := GetTransaction(exchangeAddress)
+	return CheckBalanceInTransaction(transactions, exchangeAddress, personalAddress, lastCheckTime)
 }
 
 //# Check the charge sum of specified address in transactions
-func CheckBalanceInTransaction(transactions []JsonBlockInternal, address string, fromTime int64) (balance float64) {
+func CheckBalanceInTransaction(transactions []JsonBlockInternal, exchangeAddress, personalAddress string, fromTime int64) (balance float64) {
 	for _, tx := range transactions {
+		// tx.Address here can specify a unique transaction, so you can use tx.Address as db's key for skip getBlockInfo repeatedly
+		// mark exchangeAddress's all deposit transaction
 		if tx.Direction == "input" {
 			createTime, err := time.Parse("2006-01-02 15:04:05.000", tx.CreateTime)
 			if err != nil {
@@ -92,24 +101,60 @@ func CheckBalanceInTransaction(transactions []JsonBlockInternal, address string,
 				continue
 			}
 
-			blockFields := GetBlockInfo(tx.Address)
-			if blockFields != nil && len(blockFields) > 0{
-				for _, field := range blockFields {
-					if field.Direction == "output" && field.Address == address {
+			jsonBlock := GetBlockInfo(tx.Address)
+			if jsonBlock.State != "Accepted" {
+				fmt.Println("found a transaction status is still not accepted, please pay attention")
+				continue
+			}
+			if jsonBlock.BlockAsAddress != nil && len(jsonBlock.BlockAsTransaction) > 0 {
+				for _, field := range jsonBlock.BlockAsTransaction {
+					if field.Direction == "input" && field.Address == personalAddress {
+						fmt.Printf("found exchangeAddress = %s's deposit, ready to check this transaction exist or not in db\n", exchangeAddress)
 						amount, _ := strconv.ParseFloat(field.Amount, 64)
 						balance += amount
 					}
 				}
 			}
 		}
+
+		// mark exchangeAddress's all withdraw transaction
+		if tx.Direction == "output" {
+			createTime, err := time.Parse("2006-01-02 15:04:05.000", tx.CreateTime)
+			if err != nil {
+				continue
+			}
+			if fromTime > createTime.Unix() {
+				continue
+			}
+
+			jsonBlock := GetBlockInfo(tx.Address)
+			if jsonBlock.State != "Accepted" {
+				fmt.Println("found a transaction status is still not accepted, please pay attention")
+				continue
+			}
+			if jsonBlock.BlockAsTransaction != nil && len(jsonBlock.BlockAsTransaction) > 0 {
+				for _, field := range jsonBlock.BlockAsTransaction {
+					if field.Direction == "input" && field.Address == exchangeAddress {
+						fmt.Printf("found exchangeAddress = %s's withdraw, ready to check this transaction exist or not in db\n", exchangeAddress)
+						amount, _ := strconv.ParseFloat(field.Amount, 64)
+						balance -= amount
+					}
+				}
+			}
+		}
+
 	}
 	return
 }
 
-//# Check user charge amount
-func CheckUserBalance(address string, lastCheckTime int64) (balance float64) {
-	transactions := GetTransaction(address)
-	return CheckBalanceInTransaction(transactions, address, lastCheckTime)
+func GetTransaction(adderess string) (transactions []JsonBlockInternal) {
+	jsonBlock := SendRequest(API_URL + API_BLOCK + adderess)
+	return jsonBlock.BlockAsAddress
+}
+
+func GetBlockInfo(blockAddress string) (jsonBlock JsonBlock) {
+	return SendRequest(API_URL + API_BLOCK + blockAddress)
+	//return jsonBlock.BlockAsTransaction // check jsonBlock's BlockAsTransaction
 }
 
 func SendRequest(api string) (jsonBlock JsonBlock) {
@@ -122,6 +167,19 @@ func SendRequest(api string) (jsonBlock JsonBlock) {
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		fmt.Println(err)
+		fmt.Println("try 3 times start")
+		for i := 0; i < 3; i++ {
+			fmt.Println("sleep 2 sec")
+			time.Sleep(time.Second * 2)
+			response, err = http.DefaultClient.Do(request)
+			if err == nil && response.Status == "200 OK" {
+				fmt.Println("got right response continue")
+				break
+			}
+		}
+	}
+	if err != nil || response.Status != "200 OK" {
+		fmt.Println("response status : ", response.Status, "and error : ", err)
 		return
 	}
 
