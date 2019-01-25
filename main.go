@@ -10,7 +10,7 @@ import (
 )
 
 /**
-a wallet block, if you want get it all transaction, ask fro /api/block/{wallet block address}
+a wallet block, if you want get it all transaction, ask for /api/block/{wallet block address}
 and then iterator all block as address, that all are wallet block's transaction
 the block as address has two direction, which one is input, specify that is a transaction the wallet transfer in coins, ,
 relatively the one whose direction is output specify that a transaction the wallet transfer out coins.
@@ -49,12 +49,11 @@ type JsonBlockInternal struct {
 }
 
 func main() {
-	userPersonalAddress := ""
-	userExchangeAddress := ""
+	userPersonalAddress := "" // TODO user's personal address
+	userExchangeAddress := "" // TODO user's exchange address for deposit
 	var lastCheckTime int64 = 0
 	for {
 		fmt.Println(CheckUserBalance(userExchangeAddress, userPersonalAddress, lastCheckTime))
-
 	}
 
 }
@@ -106,7 +105,7 @@ func CheckBalanceInTransaction(transactions []JsonBlockInternal, exchangeAddress
 				fmt.Println("found a transaction status is still not accepted, please pay attention")
 				continue
 			}
-			if jsonBlock.BlockAsAddress != nil && len(jsonBlock.BlockAsTransaction) > 0 {
+			if jsonBlock.BlockAsTransaction != nil && len(jsonBlock.BlockAsTransaction) > 0 {
 				for _, field := range jsonBlock.BlockAsTransaction {
 					if field.Direction == "input" && field.Address == personalAddress {
 						fmt.Printf("found exchangeAddress = %s's deposit, ready to check this transaction exist or not in db\n", exchangeAddress)
@@ -142,7 +141,6 @@ func CheckBalanceInTransaction(transactions []JsonBlockInternal, exchangeAddress
 				}
 			}
 		}
-
 	}
 	return
 }
